@@ -25,12 +25,20 @@
     name: td-agent
     state: "{{ fluentd_package_state }}"
 
+- name: Copy denylist.txt to the server
+  copy:
+    src: denylist.txt
+    dest: /tmp/fluentd/denylist.txt
+    owner: td-agent
+    group: td-agent
+    mode: 0644
+
 - name: Generate td-agent.conf
   template:
     src: td-agent.conf.j2
     dest: /etc/td-agent/td-agent.conf
-    owner: root
-    group: root
+    owner: td-agent
+    group: td-agent
     mode: 0644
   notify: Restart fluentd
 

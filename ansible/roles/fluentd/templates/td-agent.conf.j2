@@ -26,16 +26,28 @@
 ## Filter descriptions:
 ##
 
+<filter nginx.access>
+  @type grep
+  <exclude>
+    key ip
+    {% raw %}pattern ^(?:{{ lookup('file', '/tmp/fluentd/denylist.txt')|map('regex_escape')|join('|') }}){% endraw %} 
+  </exclude>
+</filter>
+
+<filter nginx.error>
+  @type grep
+  <exclude>
+    key ip
+    {% raw %}pattern ^(?:{{ lookup('file', '/tmp/fluentd/denylist.txt')|map('regex_escape')|join('|') }}){% endraw %} 
+  </exclude>
+</filter>
+
 ####
 ## Match descriptions:
 ##
 
-<match nginx.access>
+<match nginx.*>
   @type file
-  path /tmp/fluent/access/access.log
-</match>
-
-<match nginx.error>
-  @type file
-  path /tmp/fluent/error/error.log
+  path /tmp/fluentd/denylist_audit.log
+  append true
 </match>
