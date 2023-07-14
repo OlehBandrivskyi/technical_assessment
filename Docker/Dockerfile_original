@@ -1,0 +1,18 @@
+FROM ubuntu:latest
+# Update the package repository and install PostgreSQL
+RUN apt-get update && \
+    apt-get install -y postgresql
+# Create a new PostgreSQL user and database
+RUN service postgresql start && \
+    su - postgres -c "psql -c 'CREATE USER myuser WITH PASSWORD
+mypassword;'" && \
+    su - postgres -c "createdb -O myuser mydatabase"
+# Configure PostgreSQL to allow connections from all IP addresses
+RUN sed -i 's/#listen_addresses = 'localhost'/listen_addresses = '*'/'
+/etc/postgresql/13/main/postgresql.conf && \
+    echo "host all all 0.0.0.0/0
+trust" >> /etc/postgresql/13/main/pg_hba.conf
+# Expose the PostgreSQL default port
+EXPOSE 5432
+# Start the PostgreSQL service
+CMD service postgresql start && tail -f /dev/null
