@@ -1,0 +1,13 @@
+logrotate_conf_dir: "/etc/logrotate.d/"
+logrotate_scripts: 
+  - name: nginx-logs
+    path: /var/log/nginx/*.log
+    options:
+      - daily
+      - size 25M
+      - rotate 7
+      - compress
+      - maxage 5
+      - notifempty
+      - delaycompress
+      - create 0755 www-data adm

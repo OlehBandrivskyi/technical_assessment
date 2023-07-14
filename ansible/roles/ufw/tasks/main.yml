@@ -1,0 +1,21 @@
+---
+- name: Install UFW firewall
+  apt: 
+    name: ufw 
+    update_cache: yes 
+    state: latest  
+
+- name: Allow ports with rate limiting
+  ufw: 
+    rule: limit
+    port: '{{ item.number }}'
+    proto: tcp
+  with_items:
+    - { number: 22, type: ssh }
+    - { number: 80, type: http }
+   
+- name: Set firewall default policy
+  ufw: 
+    state: enabled 
+    policy: reject
+  become: true

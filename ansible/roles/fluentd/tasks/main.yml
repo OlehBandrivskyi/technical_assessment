@@ -1,0 +1,60 @@
+---
+- name: Setup dependencies
+  apt:
+    name:
+      - apt-transport-https
+      - gnupg2
+    state: present
+
+- name: Get td-agent apt_key
+  apt_key:
+    url: https://packages.treasuredata.com/GPG-KEY-td-agent
+    state: present
+
+- name: Get td-agent repository
+  apt_repository:
+    repo: >-
+      deb
+      http://packages.treasuredata.com/{{ fluentd_version }}/{{ ansible_distribution | lower }}/{{ ansible_distribution_release | lower }}/
+      {{ ansible_distribution_release | lower }} contrib
+    state: present
+    update_cache: true
+
+- name: Install td-agent
+  package:
+    name: td-agent
+    state: "{{ fluentd_package_state }}"
+
+- name: Generate td-agent.conf
+  template:
+    src: td-agent.conf.j2
+    dest: /etc/td-agent/td-agent.conf
+    owner: root
+    group: root
+    mode: 0644
+  notify: Restart fluentd
+
+- name: Determine fluent-gem executable location
+  set_fact:
+    fluent_gem_executable: /opt/td-agent/embedded/bin/fluent-gem
+  when: fluentd_version < 4
+
+- name: Determine fluent-gem executable location
+  set_fact:
+    fluent_gem_executable: /opt/td-agent/bin/fluent-gem
+  when: fluentd_version >= 4
+
+- name: Ensure Fluentd plugins are installed.
+  gem:
+    name: "{{ item.name | default(item) }}"
+    executable: "{{ fluent_gem_executable }}"
+    state: "{{ item.state | default('present') }}"
+    version: "{{ item.version | default(omit) }}"
+    user_install: false
+  with_items: "{{ fluentd_plugins }}"
+
+- name: Start Fluentd
+  service:
+    name: "{{ fluentd_service_name }}"
+    state: "{{ fluentd_service_state }}"
+    enabled: "{{ fluentd_service_enabled }}"

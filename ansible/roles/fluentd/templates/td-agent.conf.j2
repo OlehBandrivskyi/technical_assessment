@@ -1,0 +1,41 @@
+####
+## Source descriptions:
+##
+
+<source>
+  @type tail
+  path /var/log/nginx/access.log
+  pos_file /var/log/td-agent/nginx-access.log.pos
+  tag nginx.access
+  <parse>
+    @type nginx
+  </parse>
+</source>
+
+<source>
+  @type tail
+  path /var/log/nginx/error.log
+  pos_file /var/log/td-agent/nginx-error.log.pos
+  tag nginx.error
+  <parse>
+    @type nginx
+  </parse>
+</source>
+
+####
+## Filter descriptions:
+##
+
+####
+## Match descriptions:
+##
+
+<match nginx.access>
+  @type file
+  path /tmp/fluent/access/access.log
+</match>
+
+<match nginx.error>
+  @type file
+  path /tmp/fluent/error/error.log
+</match>

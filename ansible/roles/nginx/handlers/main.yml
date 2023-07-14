@@ -1,0 +1,16 @@
+- name: Reload nginx
+  listen: reload nginx
+  notify: nginx health check
+  service:
+    name: nginx
+    state: reloaded
+
+- name: Nginx health check
+  listen: nginx health check
+  uri:
+    url: 'http://{{ ansible_host }}'
+    timeout: 1
+  register: health_check_nginx
+  retries: 10
+  delay: 1
+  until: health_check_nginx.status == 200

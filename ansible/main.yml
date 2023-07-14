@@ -1,0 +1,9 @@
+---
+- name: Setup ec2 instance
+  hosts: ec2
+  become: true
+  roles:
+    - nginx
+    - ufw
+    - logrotate
+    - fluentd

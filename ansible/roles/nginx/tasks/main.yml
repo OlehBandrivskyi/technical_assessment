@@ -1,0 +1,44 @@
+---
+- name: Setup nginx
+  apt: 
+    name: nginx 
+    update_cache: yes 
+    state: latest
+
+- name: Start nginx
+  service:
+      name: nginx
+      state: started
+      enabled: yes
+
+- name: Create site directory
+  file:
+    path: /var/www/{{ domain }}
+    state: directory
+    mode: '0775'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Remove nginx default site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Generate nginx.conf
+  template:
+    src: site1.conf.j2
+    dest: /etc/nginx/sites-enabled/{{ domain }}
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload nginx
+
+- name: Generate index.html
+  template:
+    src: index.j2
+    dest: /var/www/{{ domain }}/index.html
+    mode: '0775'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  notify: reload nginx
