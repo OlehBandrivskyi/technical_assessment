@@ -181,3 +181,343 @@ Hello, bloxroute!
 Now, from localhost, connecting to the server using the previously provided SSH key.
 
 ![img-5](https://github.com/OlehBandrivskyi/technical_assessment/blob/5a29dfd3ab34150bb2ae326d6d9f587b89c629b2/img/img5.png)
+
+---
+
+# Linux, Ansible, and FluentD
+
+Directory structure:
+
+```
+tree ansible/
+├── ansible.cfg
+├── hosts.yml
+├── main.yml
+└── roles
+    ├── fluentd
+    │   ├── defaults
+    │   │   └── main.yml
+    │   ├── handlers
+    │   │   └── main.yml
+    │   ├── tasks
+    │   │   └── main.yml
+    │   └── templates
+    │       └── td-agent.conf.j2
+    ├── logrotate
+    │   ├── defaults
+    │   │   └── main.yml
+    │   ├── tasks
+    │   │   └── main.yml
+    │   └── templates
+    │       └── logrotate.j2
+    ├── nginx
+    │   ├── defaults
+    │   │   └── main.yml
+    │   ├── handlers
+    │   │   └── main.yml
+    │   ├── tasks
+    │   │   └── main.yml
+    │   └── templates
+    │       ├── index.j2
+    │       └── site1.conf.j2
+    └── ufw
+        └── tasks
+            └── main.yml
+
+17 directories, 16 files
+```
+
+## Additional settings
+
+To start working with the playbook needs to define a list of servers and the method of accessing them. 
+
+Example: __hosts.yml__
+```
+[ec2]
+ec2_eu_1   ansible_host=3.71.6.196 ansible_user=ubuntu ansible_ssh_private_key_file=../access-key.pem
+
+```
+
+## Implementation
+
+### => Nginx
+
+Check the presence of Nginx, add server configuration (__site1.conf.j2__) with HTML page (__index.j2__) and then restart it.
+
+<details><summary>nginx/tasks/main.yml</summary>
+
+```
+---
+- name: Setup nginx
+  apt: 
+    name: nginx 
+    update_cache: yes 
+    state: latest
+
+- name: Start nginx
+  service:
+      name: nginx
+      state: started
+      enabled: yes
+
+- name: Create site directory
+  file:
+    path: /var/www/{{ domain }}
+    state: directory
+    mode: '0775'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Remove nginx default site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Generate nginx.conf
+  template:
+    src: site1.conf.j2
+    dest: /etc/nginx/sites-enabled/{{ domain }}
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload nginx
+
+- name: Generate index.html
+  template:
+    src: index.j2
+    dest: /var/www/{{ domain }}/index.html
+    mode: '0775'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  notify: reload nginx
+
+```
+</details>
+
+"Hello, World!" is passed through a variable in the defaults and can be modified.
+
+Additionally, the status of the Nginx response is checked after each restart.
+
+```
+- name: Nginx health check
+  listen: nginx health check
+  uri:
+    url: 'http://{{ ansible_host }}'
+    timeout: 1
+  register: health_check_nginx
+  retries: 10
+  delay: 1
+  until: health_check_nginx.status == 200
+
+```
+### => UFW
+
+UFW is installed, and a policy is set to reject all except for ports 22 and 80 (which are in limited access mode).
+
+<details><summary>ufw/tasks/main.yml</summary>
+
+```
+---
+- name: Install UFW firewall
+  apt: 
+    name: ufw 
+    update_cache: yes 
+    state: latest  
+
+- name: Allow ports with rate limiting
+  ufw: 
+    rule: limit
+    port: '{{ item.number }}'
+    proto: tcp
+  with_items:
+    - { number: 22, type: ssh }
+    - { number: 80, type: http }
+   
+- name: Set firewall default policy
+  ufw: 
+    state: enabled 
+    policy: reject
+  become: true
+```
+</details>
+
+### => logrotate
+
+The presence of logrotate is checked, and the following configurations are applied for Nginx logs:
+```
+---
+- name: Install logrotate
+  package:
+    name: logrotate
+    state: present
+  when: logrotate_scripts is defined and logrotate_scripts|length > 0
+
+- name: Setup logrotate.d scripts
+  template:
+    src: logrotate.j2
+    dest: "{{ logrotate_conf_dir }}{{ item.name }}"
+  with_items: "{{ logrotate_scripts }}"
+  when: logrotate_scripts is defined
+```
+
+```
+logrotate_scripts: 
+  - name: nginx-logs
+    path: /var/log/nginx/*.log
+    options:
+      - daily
+      - size 25M
+      - rotate 7
+      - compress
+      - maxage 5
+      - notifempty
+      - delaycompress
+      - create 0755 www-data adm
+```
+
+- Rotate logs daily.
+- Rotate logs when they reach a size of 25MB.
+- Keep up to 7 rotated log files.
+- Compress the rotated log files.
+- Remove logs older than 5 days.
+- Only rotate logs if they are not empty.
+- Delay compression of the rotated log files.
+- Create new log files with the permissions 0755, owned by the "www-data" user and "adm" group.
+
+### => Fluentd
+
+Installation and generation of the configuration file:
+
+<details><summary>fluentd/tasks/main.yml</summary>
+
+```
+---
+- name: Setup dependencies
+  apt:
+    name:
+      - apt-transport-https
+      - gnupg2
+    state: present
+
+- name: Get td-agent apt_key
+  apt_key:
+    url: https://packages.treasuredata.com/GPG-KEY-td-agent
+    state: present
+
+- name: Get td-agent repository
+  apt_repository:
+    repo: >-
+      deb
+      http://packages.treasuredata.com/{{ fluentd_version }}/{{ ansible_distribution | lower }}/{{ ansible_distribution_release | lower }}/
+      {{ ansible_distribution_release | lower }} contrib
+    state: present
+    update_cache: true
+
+- name: Install td-agent
+  package:
+    name: td-agent
+    state: "{{ fluentd_package_state }}"
+
+- name: Generate td-agent.conf
+  template:
+    src: td-agent.conf.j2
+    dest: /etc/td-agent/td-agent.conf
+    owner: root
+    group: root
+    mode: 0644
+  notify: Restart fluentd
+
+- name: Determine fluent-gem executable location
+  set_fact:
+    fluent_gem_executable: /opt/td-agent/embedded/bin/fluent-gem
+  when: fluentd_version < 4
+
+- name: Determine fluent-gem executable location
+  set_fact:
+    fluent_gem_executable: /opt/td-agent/bin/fluent-gem
+  when: fluentd_version >= 4
+
+- name: Ensure Fluentd plugins are installed.
+  gem:
+    name: "{{ item.name | default(item) }}"
+    executable: "{{ fluent_gem_executable }}"
+    state: "{{ item.state | default('present') }}"
+    version: "{{ item.version | default(omit) }}"
+    user_install: false
+  with_items: "{{ fluentd_plugins }}"
+
+- name: Start Fluentd
+  service:
+    name: "{{ fluentd_service_name }}"
+    state: "{{ fluentd_service_state }}"
+    enabled: "{{ fluentd_service_enabled }}"
+
+```
+</details>
+
+Fluentd Template
+<details><summary>fluentd/templates/td-agent.conf.j2</summary>
+
+```
+####
+## Source descriptions:
+##
+
+<source>
+  @type tail
+  path /var/log/nginx/access.log
+  pos_file /var/log/td-agent/nginx-access.log.pos
+  tag nginx.access
+  <parse>
+    @type nginx
+  </parse>
+</source>
+
+<source>
+  @type tail
+  path /var/log/nginx/error.log
+  pos_file /var/log/td-agent/nginx-error.log.pos
+  tag nginx.error
+  <parse>
+    @type nginx
+  </parse>
+</source>
+
+####
+## Filter descriptions:
+##
+
+####
+## Match descriptions:
+##
+
+<match nginx.access>
+  @type file
+  path /tmp/fluent/access/access.log
+</match>
+
+<match nginx.error>
+  @type file
+  path /tmp/fluent/error/error.log
+</match>
+```
+</details>
+
+Final main.yml file with role inclusions:
+```
+---
+- name: Setup ec2 instance
+  hosts: ec2
+  become: true
+  roles:
+    - nginx
+    - ufw
+    - logrotate
+    - fluentd
+```
+
+ansible run and curl check:
+
+![img-6](https://github.com/OlehBandrivskyi/technical_assessment/blob/e8a889bcad4cd1e586df068f52d3d7deaf0a4a33/img/img6.png)
+![img-7](https://github.com/OlehBandrivskyi/technical_assessment/blob/e8a889bcad4cd1e586df068f52d3d7deaf0a4a33/img/img7.png)
