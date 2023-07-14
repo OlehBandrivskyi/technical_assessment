@@ -196,6 +196,8 @@ tree ansible/
     ├── fluentd
     │   ├── defaults
     │   │   └── main.yml
+    │   ├── files
+    │   │   └── denylist.txt
     │   ├── handlers
     │   │   └── main.yml
     │   ├── tasks
@@ -289,7 +291,6 @@ Check the presence of Nginx, add server configuration (__site1.conf.j2__) with H
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
   notify: reload nginx
-
 ```
 </details>
 
@@ -390,6 +391,7 @@ Installation and generation of the configuration file:
 
 ```
 ---
+---
 - name: Setup dependencies
   apt:
     name:
@@ -416,12 +418,20 @@ Installation and generation of the configuration file:
     name: td-agent
     state: "{{ fluentd_package_state }}"
 
+- name: Copy denylist.txt to the server
+  copy:
+    src: denylist.txt
+    dest: /tmp/fluentd/denylist.txt
+    owner: td-agent
+    group: td-agent
+    mode: 0644
+
 - name: Generate td-agent.conf
   template:
     src: td-agent.conf.j2
     dest: /etc/td-agent/td-agent.conf
-    owner: root
-    group: root
+    owner: td-agent
+    group: td-agent
     mode: 0644
   notify: Restart fluentd
 
@@ -449,7 +459,6 @@ Installation and generation of the configuration file:
     name: "{{ fluentd_service_name }}"
     state: "{{ fluentd_service_state }}"
     enabled: "{{ fluentd_service_enabled }}"
-
 ```
 </details>
 
@@ -485,21 +494,42 @@ Fluentd Template
 ## Filter descriptions:
 ##
 
+<filter nginx.access>
+  @type grep
+  <exclude>
+    key ip
+    {% raw %}pattern ^(?:{{ lookup('file', '/tmp/fluentd/denylist.txt')|map('regex_escape')|join('|') }}){% endraw %} 
+  </exclude>
+</filter>
+
+<filter nginx.error>
+  @type grep
+  <exclude>
+    key ip
+    {% raw %}pattern ^(?:{{ lookup('file', '/tmp/fluentd/denylist.txt')|map('regex_escape')|join('|') }}){% endraw %} 
+  </exclude>
+</filter>
+
 ####
 ## Match descriptions:
 ##
 
-<match nginx.access>
+<match nginx.*>
   @type file
-  path /tmp/fluent/access/access.log
-</match>
-
-<match nginx.error>
-  @type file
-  path /tmp/fluent/error/error.log
+  path /tmp/fluentd/denylist_audit.log
+  append true
 </match>
 ```
 </details>
+
+Example denylist.txt:
+```
+31.43.80.48
+129.152.30.79
+```
+By using this template, log filtering is performed based on a list of specified IP addresses.
+
+![img-13](https://github.com/OlehBandrivskyi/technical_assessment/blob/2802ce64d70d2d5329238e84c0bf3104e19282f2/img/img13.png)
 
 Final main.yml file with role inclusions:
 ```
