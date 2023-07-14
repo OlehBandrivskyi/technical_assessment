@@ -73,7 +73,6 @@ data "aws_ami" "ubuntu" {
 
   owners = ["099720109477"] # Canonical
 }
-
 ```
 
 In the default VPC a security group is created with open ports [22, 80, 443].
@@ -308,7 +307,6 @@ Additionally, the status of the Nginx response is checked after each restart.
   retries: 10
   delay: 1
   until: health_check_nginx.status == 200
-
 ```
 ### => UFW
 
@@ -696,7 +694,7 @@ When troubleshooting issues with a running container, we can follow these steps:
 
 - Inspect container logs: Use the __docker logs__ command followed by the container ID or name to view the container's logs. Check for any error messages or warnings that may indicate the source of the problem.
 
-Access the container's shell: If the container allows interactive access, we can use the __docker exec -it__ command followed by the container ID or name and the shell command (e.g., /bin/bash) to access the container's shell. This allows you to investigate the container's filesystem, check configurations, and run commands for troubleshooting.
+- Access the container's shell: If the container allows interactive access, we can use the __docker exec -it__ command followed by the container ID or name and the shell command (e.g., /bin/bash) to access the container's shell. This allows you to investigate the container's filesystem, check configurations, and run commands for troubleshooting.
 
 - Review container resource usage: Use the docker stats command to monitor the container's resource usage, such as CPU, memory, and network. High resource utilization may indicate performance issues or bottlenecks.
 
