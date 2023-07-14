@@ -3,7 +3,7 @@
 ## Sections
 
 - [[I] Terraform and AWS](#terraform-and-aws)
-- [[II] Linux, Ansible, and FluentD](#linx-ansible---and-fluentd)
+- [[II] Linux, Ansible, and FluentD](#linux-ansible-and-fluentd)
 - [[III] Docker](#docker)
 
 ---
@@ -235,7 +235,6 @@ Example: __hosts.yml__
 ```
 [ec2]
 ec2_eu_1   ansible_host=3.71.6.196 ansible_user=ubuntu ansible_ssh_private_key_file=../access-key.pem
-
 ```
 
 ## Implementation
@@ -521,3 +520,204 @@ ansible run and curl check:
 
 ![img-6](https://github.com/OlehBandrivskyi/technical_assessment/blob/e8a889bcad4cd1e586df068f52d3d7deaf0a4a33/img/img6.png)
 ![img-7](https://github.com/OlehBandrivskyi/technical_assessment/blob/e8a889bcad4cd1e586df068f52d3d7deaf0a4a33/img/img7.png)
+
+---
+
+# Docker
+
+
+### Troubleshooting steps:
+
+1. The original Dockerfile had visible line breaks that caused build errors. 
+
+2. During the build process, at the stage of updating and installing PostgreSQL, an interactive input was required from the user, which resulted in an error.
+![img-8](https://github.com/OlehBandrivskyi/technical_assessment/blob/e26fa3280f0652365d31e50a9c3a83cf08831258/img/img8.png)
+
+Fix: 
+```
+RUN apt-get update && \
+    DEBIAN_FRONTEND="noninteractive" TZ=Etc/UTC apt-get install -y postgresql
+```
+
+3. The next issues were related to the formatting of quotation marks.
+![img-9](https://github.com/OlehBandrivskyi/technical_assessment/blob/e26fa3280f0652365d31e50a9c3a83cf08831258/img/img9.png)
+
+Fix:
+```
+su - postgres -c "psql -c \"CREATE USER myuser WITH PASSWORD 'mypassword';\""
+```
+
+4. The request for creating a database contained a syntax error, which was replaced.
+
+```
+   su - postgres -c "psql -c 'create database mydatabase'" && \
+   su - postgres -c "psql -c 'grant all privileges on database mydatabase to myuser;'" 
+```
+
+5. The next issue was the absence of a configuration file at the specified path. To debug the issue, the following command was used to find correct path.
+
+```
+ su - postgres -c "psql -c'show config_file'"
+```
+
+![img-10](https://github.com/OlehBandrivskyi/technical_assessment/blob/e26fa3280f0652365d31e50a9c3a83cf08831258/img/img10.png)
+
+6. The build process completed successfully. To verify, we can enter the container and attempt to connect to the database using the created username and password.
+
+```
+docker build . -t postgresql
+docker run --name postgres -d -p 5432:5432 postgresql
+docker exec -it postgres sh
+```
+![img-11](https://github.com/OlehBandrivskyi/technical_assessment/blob/e26fa3280f0652365d31e50a9c3a83cf08831258/img/img11.png)
+
+7. However, when trying to connect to the database from the host machine, an issue occurred. Upon analyzing postgresql.conf, it was found that the necessary line overwrite was ignored due to a syntax error in the sed command, which has been fixed.
+
+```
+sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/14/main/postgresql.conf
+```
+
+The corrected Dockerfile:
+```
+FROM ubuntu:latest
+# Update the package repository and install PostgreSQL
+RUN apt-get update && \
+    DEBIAN_FRONTEND="noninteractive" TZ=Etc/UTC apt-get install -y postgresql
+
+# Create a new PostgreSQL user and database
+RUN service postgresql start && \
+   su - postgres -c "psql -c \"CREATE USER myuser WITH PASSWORD 'mypassword';\"" && \
+   su - postgres -c "psql -c 'create database mydatabase'" && \
+   su - postgres -c "psql -c 'grant all privileges on database mydatabase to myuser;'" 
+
+# Configure PostgreSQL to allow connections from all IP addresses
+RUN sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/14/main/postgresql.conf && \
+    echo "host all all 0.0.0.0/0 trust" >> /etc/postgresql/14/main/pg_hba.conf
+
+# Expose the PostgreSQL default port
+EXPOSE 5432
+
+# Start the PostgreSQL service
+CMD service postgresql start && tail -f /dev/null
+```
+
+A solution without passing credentials in clear text in the Dockerfile:
+
+Dockerfile
+```
+FROM ubuntu:latest
+
+#Update the package repository and install PostgreSQL
+RUN apt-get update && \
+    DEBIAN_FRONTEND="noninteractive" TZ=Etc/UTC apt-get install -y postgresql
+
+#Create a new PostgreSQL user and database
+ARG USERNAME
+ARG PASSWORD
+ARG DBNAME
+
+RUN service postgresql start && \
+    su - postgres -c "psql -c \"CREATE USER $USERNAME WITH PASSWORD '$PASSWORD';\"" && \
+    su - postgres -c "psql -c 'create database $DBNAME'" && \
+    su - postgres -c "psql -c 'grant all privileges on database $DBNAME to $USERNAME;'"
+
+#Configure PostgreSQL to allow connections from all IP addresses
+RUN sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/14/main/postgresql.conf && \
+    echo "host all all 0.0.0.0/0 trust" >> /etc/postgresql/14/main/pg_hba.conf
+
+#Expose the PostgreSQL default port
+EXPOSE 5432
+
+#Start the PostgreSQL service
+CMD service postgresql start && tail -f /dev/null
+
+```
+Build example:
+```
+docker build -f Dockerfile_new . -t postgres_new --build-arg USERNAME=bloxroute --build-arg PASSWORD=mytestpass --build-arg DBNAME=db1
+```
+
+<details><summary>Dockerfile_new</summary>
+
+```
+Sending build context to Docker daemon  352.2MB
+Step 1/9 : FROM ubuntu:latest
+ ---> 37f74891464b
+Step 2/9 : RUN apt-get update &&     DEBIAN_FRONTEND="noninteractive" TZ=Etc/UTC apt-get install -y postgresql
+ ---> Using cache
+ ---> 02afe5b1bd18
+Step 3/9 : ARG USERNAME
+ ---> Using cache
+ ---> 7aad17743223
+Step 4/9 : ARG PASSWORD
+ ---> Using cache
+ ---> 16a895f35b7a
+Step 5/9 : ARG DBNAME
+ ---> Using cache
+ ---> 0df2ab913ea9
+Step 6/9 : RUN service postgresql start &&     su - postgres -c "psql -c \"CREATE USER $USERNAME WITH PASSWORD '$PASSWORD';\"" &&     su - postgres -c "psql -c 'create database $DBNAME'" &&     su - postgres -c "psql -c 'grant all privileges on database $DBNAME to $USERNAME;'"
+ ---> Running in 472e4aa839c5
+ * Starting PostgreSQL 14 database server
+   ...done.
+CREATE ROLE
+CREATE DATABASE
+GRANT
+Removing intermediate container 472e4aa839c5
+ ---> 586ae92c20c8
+Step 7/9 : RUN sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/14/main/postgresql.conf &&     echo "host all all 0.0.0.0/0 trust" >> /etc/postgresql/14/main/pg_hba.conf
+ ---> Running in c5396fddd93e
+Removing intermediate container c5396fddd93e
+ ---> b50a61b11de9
+Step 8/9 : EXPOSE 5432
+ ---> Running in cfbf486cbe58
+Removing intermediate container cfbf486cbe58
+ ---> e97db2070f50
+Step 9/9 : CMD service postgresql start
+ ---> Running in b7c5a30dd026
+Removing intermediate container b7c5a30dd026
+ ---> dd1e92ddd470
+Successfully built dd1e92ddd470
+Successfully tagged postgres_new:latest
+```
+</details>
+
+Let's check:
+
+```
+docker run --name postgres_new -d -p 5432:5432 postgres_new
+docker exec -it postgres_new sh
+```
+
+![img-12](https://github.com/OlehBandrivskyi/technical_assessment/blob/e26fa3280f0652365d31e50a9c3a83cf08831258/img/img12.png)
+
+When troubleshooting issues with a running container, we can follow these steps:
+  
+- Check the container status: Use the __docker ps__ command to list the running containers and ensure that the container in question is running.
+
+- Inspect container logs: Use the __docker logs__ command followed by the container ID or name to view the container's logs. Check for any error messages or warnings that may indicate the source of the problem.
+
+Access the container's shell: If the container allows interactive access, we can use the __docker exec -it__ command followed by the container ID or name and the shell command (e.g., /bin/bash) to access the container's shell. This allows you to investigate the container's filesystem, check configurations, and run commands for troubleshooting.
+
+- Review container resource usage: Use the docker stats command to monitor the container's resource usage, such as CPU, memory, and network. High resource utilization may indicate performance issues or bottlenecks.
+
+- Check container health checks: If the container has health checks configured, use the docker inspect command followed by the container ID or name to view the health check status and output. Health checks can provide information about the container's overall health and any issues encountered.
+
+- Verify container network connectivity: Check if the container has the required network connectivity. Ensure that the necessary ports are exposed and properly mapped to the host, and that any network-related configurations (e.g., firewall rules, DNS settings) are correctly configured.
+
+- Check for container dependencies: If the container relies on other services or containers, verify that those dependencies are running and accessible. Ensure that the necessary inter-service communication is properly established.
+
+- Update or recreate the container: If the issue persists, consider updating the container image or recreating the container from scratch.
+
+### Additionally
+
+In my opinion, the optimal approach in this case is to use the official PostgreSQL image. By providing the necessary user parameters and connecting volumes, data can be securely stored.
+
+Example 
+```
+$ docker run -d \
+	--name some-postgres \
+	-e POSTGRES_PASSWORD=mysecretpassword \
+	-e PGDATA=/var/lib/postgresql/data/pgdata \
+	-v /custom/mount:/var/lib/postgresql/data \
+	postgres
+```
